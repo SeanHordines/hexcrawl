@@ -9,7 +9,7 @@ hex_width = 2 * hex_radius
 hex_height = math.sqrt(3) * hex_width / 2
 
 class Hex:
-    def __init__(self, n, m, v, c=(255, 255, 255)):
+    def __init__(self, n, m, v):
         # row and col coords
         self.n = n
         self.m = m
@@ -25,7 +25,6 @@ class Hex:
 
         self.baseValue = v
         self.effValue = self.baseValue
-        self.color = c
 
         # define the vertices of the hex
         self.points = []
@@ -39,23 +38,21 @@ class Hex:
         return "(%d, %d, %d): %d (%d)" % (self.r, self.s, self.t, self.effValue, self.baseValue)
 
     def draw(self, color=None):
+        self.setColor(color)
+
         # draw the hex itself
         pygame.draw.polygon(screen, self.color, self.points, 3)
 
-        # color based on hex parameters
-        if color is None:
-            color = (255, 255 - 255 * self.effValue / 10, 0)
-
         # draw the coords
         font = pygame.font.Font(None, 14)
-        text = font.render("(%d, %d, %d)" % (self.r, self.s, self.t), True, color)
+        text = font.render("(%d, %d, %d)" % (self.r, self.s, self.t), True, self.color)
         text_rect = text.get_rect()
         text_rect.center = (self.cx, self.cy + hex_height * 0.4)
         screen.blit(text, text_rect)
 
         # draw the value
         font = pygame.font.Font(None, 36)
-        text = font.render("%d (%d)" % (self.effValue, self.baseValue), True, color)
+        text = font.render("%d (%d)" % (self.effValue, self.baseValue), True, self.color)
         text_rect = text.get_rect()
         text_rect.center = (self.cx, self.cy)
         screen.blit(text, text_rect)
@@ -85,6 +82,21 @@ class Hex:
         q = queue.Queue()
         q.put(self)
         updateHelper(q)
+
+    def incr(self):
+        self.setValue(self.baseValue + 1)
+
+    def decr(self):
+        self.setValue(self.baseValue - 1)
+
+    def setColor(self, color=None):
+        if color is None:
+            red = 255
+            green = 255 - min(255 * self.effValue * 0.1, 255) if self.effValue > 0 else 255
+            blue = 0
+            self.color = (red, green, blue)
+        else:
+            self.color = color
 
 def updateHelper(q):
     while not q.empty():
@@ -124,11 +136,6 @@ for m in range(row):
         hex = Hex(n, m, 0)
         hexgrid[(hex.r, hex.s, hex.t)] = hex
 
-hexgrid.get((0, 0, 0)).setValue(7)
-hexgrid.get((2, 3, -5)).setValue(10)
-hexgrid.get((2, 3, -5)).setValue(7)
-# print(hexgrid.get((0, 0, 0)).getDist(hexgrid.get((2, 3, -5))))
-
 # setup the game screen
 pygame.init()
 screen = pygame.display.set_mode((0.75 * col * hex_width + 0.25 * hex_width,
@@ -141,17 +148,21 @@ mouse_pos = (0, 0)
 activeHex = None
 while running:
     clock.tick(30)
+
     mousePos = pygame.mouse.get_pos()
+    activeHex = nearestHex(hexgrid, mousePos)
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
             break
-
-    if pygame.mouse.get_pressed()[0]:
-        activeHex = nearestHex(hexgrid, mousePos)
-    else:
-        activeHex = None
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1:
+                activeHex.incr()
+            elif event.button == 3:
+                activeHex.decr()
+            elif event.button == 2:
+                activeHex.setValue(0)
 
     # render hexes
     screen.fill((0, 0, 0))
