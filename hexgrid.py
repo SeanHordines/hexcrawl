@@ -7,6 +7,8 @@ ROW, COL = 13, 21
 HEX_RADIUS = 40
 HEX_WIDTH = 2 * HEX_RADIUS
 HEX_HEIGHT = math.sqrt(3) * HEX_WIDTH / 2
+SCREEN_WIDTH = 0.75 * COL * HEX_WIDTH + 0.25 * HEX_WIDTH
+SCREEN_HEIGHT = ROW * HEX_HEIGHT + 0.5 * HEX_HEIGHT
 
 class Hex:
     def __init__(self, n, m, v):
@@ -14,10 +16,8 @@ class Hex:
         self.n = n
         self.m = m
 
-        # translate to axial coords
-        self.r = self.n - math.floor(0.5 * COL)
-        self.s = -self.m - math.ceil(0.5 * self.n) + math.ceil(0.5 * COL)
-        self.t = -self.r - self.s # 0=r+s+t
+        # axial coords
+        self.r, self.s, self.t = coordTranslater(n, m)
 
         # pixel coords of centerpoint
         self.cx = (n * HEX_WIDTH * 0.75) + (HEX_WIDTH * 0.5)
@@ -65,6 +65,11 @@ class Hex:
         return (dr + ds + dt) / 2
 
     def setValue(self, newValue):
+        if newValue > 10:
+            newValue = 10
+        elif newValue < 0:
+            newValue = 0
+
         self.baseValue = newValue
         self.modified = True
 
@@ -116,32 +121,73 @@ class HexSprite(pygame.sprite.Sprite):
         self.draw()
 
     def draw(self, color=None):
-        if self.hex.modified:
-            # reset the drawing area to black
-            pygame.draw.polygon(screen, (0, 0, 0), self.hex.points)
+        # reset the drawing area to black
+        pygame.draw.polygon(screen, (0, 0, 0), self.hex.points)
 
-            # set the color to draw with
-            self.hex.setColor(color)
+        # set the color to draw with
+        self.hex.setColor(color)
 
-            # draw the hex itself
-            pygame.draw.polygon(screen, self.hex.color, self.hex.points, 3)
+        # draw the hex itself
+        pygame.draw.polygon(screen, self.hex.color, self.hex.points, 3)
 
-            # draw the coords along the bottom edge
-            font = pygame.font.Font(None, 14)
-            text = font.render(f"({self.hex.r}, {self.hex.s}, {self.hex.t})", True, self.hex.color)
-            textRect = text.get_rect()
-            textRect.center = (self.hex.cx, self.hex.cy + HEX_HEIGHT * 0.4)
-            screen.blit(text, textRect)
+        # draw the coords along the bottom edge
+        font = pygame.font.Font(None, 14)
+        text = font.render(f"({self.hex.r}, {self.hex.s}, {self.hex.t})", True, self.hex.color)
+        textRect = text.get_rect()
+        textRect.center = (self.hex.cx, self.hex.cy + HEX_HEIGHT * 0.4)
+        screen.blit(text, textRect)
 
-            # draw the values at the center
-            font = pygame.font.Font(None, 36)
-            text = font.render(f"{self.hex.effValue} ({self.hex.baseValue})", True, self.hex.color)
-            textRect = text.get_rect()
-            textRect.center = (self.hex.cx, self.hex.cy)
-            screen.blit(text, textRect)
+        # draw the values at the center
+        font = pygame.font.Font(None, 36)
+        text = font.render(f"{self.hex.effValue} ({self.hex.baseValue})", True, self.hex.color)
+        textRect = text.get_rect()
+        textRect.center = (self.hex.cx, self.hex.cy)
+        screen.blit(text, textRect)
 
-            # changes have been recorded
-            self.hex.modified = False
+        # changes have been recorded
+        self.hex.modified = False
+
+class originLineSprite(pygame.sprite.Sprite):
+    def __init__(self):
+        # extends the base sprite class
+        super().__init__()
+
+        # creates a sprite for the whole screen
+        self.hexes = []
+        self.points = []
+        self.setPoints()
+        self.image = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        self.draw()
+
+    def draw(self, color=None):
+        if len(self.points) > 1:
+            # draw a line from the active hex to its origin
+            pygame.draw.lines(screen, (0, 0, 255), False, self.points, 3)
+
+    def setPoints(self, hex=None):
+        # reset the line
+        for oldHexes in self.hexes:
+            oldHexes.modified = True
+        self.hexes = []
+        self.points = []
+
+        # initial and edge cases
+        if not hex:
+            return
+
+        # add current hex
+        self.hexes.append(hex)
+        self.points.append((hex.cx, hex.cy))
+
+        # pathfind to the strongest hex that influences the given hex
+        while hex.effValue is not hex.baseValue:
+            for n in hex.getNeighbors():
+                # find strongest neighbor
+                if n.effValue > hex.effValue:
+                    hex = n
+            # add the neighbor and repeat
+            self.points.append((hex.cx, hex.cy))
+            self.hexes.append(hex)
 
 def pointDist(p1, p2):
     # pythagorean theorem
@@ -183,13 +229,22 @@ def nearestHex(hexgrid, mousePos):
     if minDist < HEX_RADIUS:
         return nearestHex
 
-# setup the game screen
+def coordTranslater(n, m):
+    # translate to axial coords
+    r = n - math.floor(0.5 * COL)
+    s = -m - math.ceil(0.5 * n) + math.ceil(0.5 * COL)
+    t = -r - s # 0=r+s+t
+
+    return (r, s, t)
+
+# setup the game window
 pygame.init()
-screen = pygame.display.set_mode((0.75 * COL * HEX_WIDTH + 0.25 * HEX_WIDTH,
-ROW * HEX_HEIGHT + 0.5 * HEX_HEIGHT))
+pygame.display.set_caption("Hexgrid")
+pygame.display.set_icon(pygame.image.load('Hexagon.png'))
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 screen.fill((0, 0, 0))
 
-# create a sprite group
+# create a sprite group for the hexes
 hexSprites = pygame.sprite.Group()
 
 # create the map
@@ -205,15 +260,20 @@ for m in range(ROW):
         hexSprite = HexSprite(hex)
         hexSprites.add(hexSprite)
 
+# create an origin line sprite
+originLine = originLineSprite()
+
 # main loop
 running = True
 mouse_pos = (0, 0)
 activeHex = None
+clock = pygame.time.Clock()
 while running:
-    # update the active hex
+    # update the active hex and origin line
     oldActiveHex = activeHex
     mousePos = pygame.mouse.get_pos()
     activeHex = nearestHex(hexgrid, mousePos)
+    originLine.setPoints(activeHex)
 
     # record the change
     if oldActiveHex:
@@ -239,8 +299,13 @@ while running:
 
     # render hexes
     for sprite in hexSprites:
-        # active hex is blue
-        sprite.draw((0, 0, 255) if sprite.hex is activeHex else None)
+        if sprite.hex.modified:
+            # active hex is blue
+            sprite.draw((0, 0, 255) if sprite.hex is activeHex else None)
+    originLine.draw()
     pygame.display.flip()
+
+    # limits FPS to 60
+    clock.tick(60)
 
 pygame.quit()
