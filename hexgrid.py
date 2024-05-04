@@ -14,7 +14,7 @@ class Hex:
         self.n = n
         self.m = m
 
-        # axial coords
+        # translate to axial coords
         self.r = self.n - math.floor(0.5 * col)
         self.s = -self.m - math.ceil(0.5 * self.n) + math.ceil(0.5 * col)
         self.t = -self.r - self.s # 0=r+s+t
@@ -23,6 +23,7 @@ class Hex:
         self.cx = (n * hex_width * 0.75) + (hex_width * 0.5)
         self.cy = (m * hex_height) + (hex_height * 0.5) + (n%2 * hex_height * 0.5)
 
+        # set initial values
         self.baseValue = v
         self.effValue = self.baseValue
 
@@ -60,6 +61,7 @@ class Hex:
     def getNeighbors(self):
         neighbors = []
 
+        # grab the zix surrounding hexes
         neighbors.append(hexgrid.get((self.r-1, self.s+1, self.t)))
         neighbors.append(hexgrid.get((self.r-1, self.s, self.t+1)))
         neighbors.append(hexgrid.get((self.r+1, self.s-1, self.t)))
@@ -67,21 +69,42 @@ class Hex:
         neighbors.append(hexgrid.get((self.r, self.s-1, self.t+1)))
         neighbors.append(hexgrid.get((self.r, self.s+1, self.t-1)))
 
+        # only return real hexes
         neighbors = list(filter(lambda x: x is not None, neighbors))
 
         return neighbors
 
     def getDist(self, other):
+        # manhatten distance
         dr = abs(self.r - other.r)
         ds = abs(self.s - other.s)
         dt = abs(self.t - other.t)
+
+        # each step is a difference of two
         return (dr + ds + dt) / 2
 
     def setValue(self, newValue):
         self.baseValue = newValue
+
         q = queue.Queue()
         q.put(self)
-        updateHelper(q)
+
+        # breadth first propogation
+        while not q.empty():
+            hex = q.get()
+
+            neighbors = hex.getNeighbors()
+
+            # strength decays by 1 per step
+            propValue = max([n.effValue for n in neighbors]) - 1
+
+            # only propogate if a change is made
+            oldValue = hex.effValue
+            newValue = max(hex.baseValue, propValue)
+            if oldValue is not newValue:
+                hex.effValue = newValue
+                for n in neighbors:
+                    q.put(n)
 
     def incr(self):
         self.setValue(self.baseValue + 1)
@@ -89,8 +112,9 @@ class Hex:
     def decr(self):
         self.setValue(self.baseValue - 1)
 
-    def setColor(self, color=None):
+    def setColor(self, color):
         if color is None:
+            # shade hex based on value
             red = 255
             green = 255 - min(255 * self.effValue * 0.1, 255) if self.effValue > 0 else 255
             blue = 0
@@ -98,36 +122,45 @@ class Hex:
         else:
             self.color = color
 
-def updateHelper(q):
-    while not q.empty():
-        hex = q.get()
-
-        neighbors = hex.getNeighbors()
-        propValue = max([n.effValue for n in neighbors]) - 1
-        oldValue = hex.effValue
-        newValue = max(hex.baseValue, propValue)
-
-        if oldValue is not newValue:
-            hex.effValue = newValue
-            for n in neighbors:
-                q.put(n)
-
 def pointDist(p1, p2):
+    # pythagorean theorem
     x1, y1 = p1
     x2, y2 = p2
     return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
 
 def nearestHex(hexgrid, mousePos):
+    # compute rough row col coords
+    mousex, mousey = mousePos
+    n = math.floor(mousex / (hex_width * 0.75))
+    m = math.floor(mousey / hex_height)
+
+    # convert to axial coords
+    r = n - math.floor(0.5 * col)
+    s = -m - math.ceil(0.5 * n) + math.ceil(0.5 * col)
+    t = -r - s # 0=r+s+t
+
+    # search rough guess and its neighbors
+    guess = hexgrid.get((r, s, t))
+    if guess is not None:
+        candidates = [guess] + guess.getNeighbors()
+    else:
+        # literal edge case
+        guess = Hex(n, m, 0)
+        # don't include the fake hex
+        candidates = guess.getNeighbors()
+
+    # find smallest distance
     minDist = float('inf')
     nearestHex = None
-
-    for hex in hexgrid.values():
+    for hex in candidates:
         dist = pointDist(mousePos, (hex.cx, hex.cy))
         if dist < minDist:
             minDist = dist
             nearestHex = hex
 
-    return nearestHex
+    # only return when actually over a hex
+    if minDist < hex_radius:
+        return nearestHex
 
 # create the map
 hexgrid = {}
@@ -152,6 +185,7 @@ while running:
     mousePos = pygame.mouse.get_pos()
     activeHex = nearestHex(hexgrid, mousePos)
 
+    # handle incr, decr, and reset
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -167,10 +201,11 @@ while running:
     # render hexes
     screen.fill((0, 0, 0))
     for hex in hexgrid.values():
-        if hex is activeHex:
-            hex.draw((0, 0, 255))
-        else:
+        if hex is  not activeHex:
             hex.draw()
+    # draw the active hex in blue
+    if activeHex:
+        activeHex.draw((0, 0, 255))
     pygame.display.flip()
 
 pygame.quit()
